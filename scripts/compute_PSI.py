@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import math
 
-def compute_gene_PSI(PSI_df,exon_gene_df,junction_gene_df,annot_gene_df,read_len):
+def compute_gene_PSI(PSI_df,exon_gene_df,junction_gene_df,annot_gene_df,read_len,norm):
     'Compute Percent Spliced In (PSI)'
     exons = list(exon_gene_df.index)
     min_reads = 10
@@ -48,14 +48,18 @@ def compute_gene_PSI(PSI_df,exon_gene_df,junction_gene_df,annot_gene_df,read_len
             mask = (A_B_norm == 0) & (C_norm == 0)
             PSI_norm = 100*((A_B_norm)/(A_B_norm + C_norm)) if (A_B_norm.sum() + C_norm.sum()) > 0.00 else 0
             PSI_norm = PSI_norm.where(~mask,0)
+            if norm:
+                PSI_norm = ZNorm(PSI_norm)
+                if PSI_norm == None:
+                    print('{} had no variance'.format(exon))
+                    continue
             PSI_df[exon] = PSI_norm
 
     return PSI_df
 
-def ZNorm(vals,m,sd):
-    if m is None:
-        m = np.mean(vals)
-        sd = math.sqrt(np.var(vals))
+def ZNorm(vals):
+    m = np.mean(vals)
+    sd = math.sqrt(np.var(vals))
     if sd == 0: return None
     return [(item-m)/sd for item in vals]
 
@@ -98,10 +102,10 @@ if __name__ == "__main__":
     parser.add_argument("--exon_expr", help="File path to exon expression dataset", type=str, required=True)
     parser.add_argument("--junction_expr", help="File path to junction expression dataset", type=str, required=True)
     parser.add_argument("--exprannot", help="Exon expression annotation file", type=str, required=True)
-    parser.add_argument("--chrom", help="Restrict analysis to this chromosome", type=str, required=True)
+    parser.add_argument("--chrom", help="Chromsome for PSI calculations", type=str, required=True)
     parser.add_argument("--min_samples", help="Require data for this many samples", type=int, default=0)
     parser.add_argument("--read_len", help="Paired end length, default is GTEx read length: 75bp ", type=int, default=75)
-    parser.add_argument("--norm", help="Normalize PSI values", type=int, default=75)
+    parser.add_argument("--norm", help="Normalize PSI values", required=False)
     parser.add_argument("--out", help="Write data files to this file", type=str, required=True)
 
     args = parser.parse_args()
@@ -112,6 +116,7 @@ if __name__ == "__main__":
     MINSAMPLES = args.min_samples
     READLEN = args.read_len
     OUTFILE = args.out
+    NORM = True if args.norm else False        
 
     exon_df = pd.read_table(EXONFILE, index_col=0)
     annot_df = pd.read_table(ANNOTFILE, index_col=0,sep=',')
@@ -150,7 +155,8 @@ if __name__ == "__main__":
                                   exon_gene_df,
                                   junction_gene_df,
                                   annot_gene_df,
-                                  READLEN)
+                                  READLEN,
+                                  NORM)
     PSI_filtered_df = filter_exons(PSI_df.dropna(axis=1))
     print('Exons with PSI: {}\n'.format(len(PSI_filtered_df.columns)))
     PSI_filtered_df.to_csv(OUTFILE)
