@@ -3,10 +3,9 @@ import pandas as pd
 import numpy as np
 import math
 
-def compute_gene_PSI(PSI_df,exon_gene_df,junction_gene_df,annot_gene_df,read_len,norm):
+def compute_gene_PSI(PSI_df,exon_gene_df,junction_gene_df,annot_gene_df,read_len,norm,min_reads):
     'Compute Percent Spliced In (PSI)'
     exons = list(exon_gene_df.index)
-    min_reads = 10
 
     for exon in exons:
 
@@ -39,18 +38,21 @@ def compute_gene_PSI(PSI_df,exon_gene_df,junction_gene_df,annot_gene_df,read_len
         C_reads = C_reads.iloc[:,2:].sum()
 
         total_reads = A_reads + B_reads + C_reads
-        if len(total_reads[total_reads < min_reads])/len(total_reads) > 0.2:
+        
+        if len(total_reads[total_reads < 10])/len(total_reads) > 0.2:
             continue
         else:
+            
             A_B_norm = (A_reads + B_reads)/(read_len + exon_len-1)
             C_norm = C_reads/(read_len-1)
 
-            mask = (A_B_norm == 0) & (C_norm == 0)
+            mask = total_reads < min_reads
             PSI_norm = 100*((A_B_norm)/(A_B_norm + C_norm)) if (A_B_norm.sum() + C_norm.sum()) > 0.00 else 0
-            PSI_norm = PSI_norm.where(~mask,0)
+            PSI_norm = PSI_norm.where(~mask,np.nan)
             if norm:
                 PSI_norm = ZNorm(PSI_norm)
                 if PSI_norm == None:
+                    print(np.mean(total_reads))
                     print('{} had no variance'.format(exon))
                     continue
             PSI_df[exon] = PSI_norm
@@ -60,7 +62,9 @@ def compute_gene_PSI(PSI_df,exon_gene_df,junction_gene_df,annot_gene_df,read_len
 def ZNorm(vals):
     m = np.mean(vals)
     sd = math.sqrt(np.var(vals))
-    if sd == 0: return None
+    if sd == 0: 
+        print(vals)
+        return None
     return [(item-m)/sd for item in vals]
 
 def max_coverage_samples(exon_df):
@@ -105,8 +109,9 @@ if __name__ == "__main__":
     parser.add_argument("--chrom", help="Chromsome for PSI calculations", type=str, required=True)
     parser.add_argument("--min_samples", help="Require data for this many samples", type=int, default=0)
     parser.add_argument("--read_len", help="Paired end length, default is GTEx read length: 75bp ", type=int, default=75)
-    parser.add_argument("--norm", help="Normalize PSI values", required=False)
-    parser.add_argument("--out", help="Write data files to this file", type=str, required=True)
+    parser.add_argument("--norm", help="Normalize PSI values", action="store_true")
+    parser.add_argument("--min_reads", help="Require at least this many reads per exon", type=int, default=5, required=False)
+    parser.add_argument("--out", help="Write out to this file", type=str, required=True)
 
     args = parser.parse_args()
     EXONFILE = args.exon_expr
@@ -114,6 +119,7 @@ if __name__ == "__main__":
     ANNOTFILE = args.exprannot
     CHROM = args.chrom
     MINSAMPLES = args.min_samples
+    MINREADS = args.min_reads
     READLEN = args.read_len
     OUTFILE = args.out
     NORM = True if args.norm else False        
@@ -156,7 +162,8 @@ if __name__ == "__main__":
                                   junction_gene_df,
                                   annot_gene_df,
                                   READLEN,
-                                  NORM)
+                                  NORM,
+                                  MINREADS)
     PSI_filtered_df = filter_exons(PSI_df.dropna(axis=1))
     print('Exons with PSI: {}\n'.format(len(PSI_filtered_df.columns)))
     PSI_filtered_df.to_csv(OUTFILE)
